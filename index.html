@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scheduling Tool — Outbound</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --g1: #1b3a2b; --g2: #2d5a3d; --g3: #3d7a52; --g4: #4e9463;
+  --g-light: #eaf3de; --g-pale: #f4faf5;
+  --amber: #c07a1a; --amber-light: #faeeda;
+  --red: #8b2e2e; --red-light: #fcebeb;
+  --teal: #2e6b5e; --teal-light: #e1f5ee;
+  --slate: #5f5e5a; --border: #dde8dd;
+  --text: #1c2b1c; --muted: #6b7c6b; --faint: #a8b8a8;
+  --bg: #f0f5f0; --surface: #ffffff; --surface2: #f7fbf7;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
+
+/* ── TOPBAR ── */
+.topbar {
+  background: var(--g1); height: 48px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px; position: sticky; top: 0; z-index: 100;
+  border-bottom: 1px solid #0d2016;
+}
+.topbar-left { display: flex; align-items: center; gap: 16px; }
+.logo { display: flex; align-items: center; gap: 8px; }
+.logo-badge {
+  width: 28px; height: 28px; background: #f2c811; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; color: #1b3a2b;
+}
+.logo-text { font-size: 14px; font-weight: 600; color: #fff; letter-spacing: -0.3px; }
+.report-title { font-size: 12px; color: #8fbf9f; border-left: 1px solid #3d7a52; padding-left: 16px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.sync-badge {
+  font-size: 11px; font-family: 'DM Mono', monospace;
+  background: #253d2e; color: #8fbf9f; border-radius: 20px; padding: 3px 12px;
+  border: 1px solid #3d7a52;
+}
+.btn-export {
+  font-size: 11px; font-family: 'DM Sans', sans-serif;
+  background: var(--g3); color: #fff; border: none; border-radius: 6px;
+  padding: 5px 14px; cursor: pointer; font-weight: 500;
+}
+.btn-export:hover { background: var(--g4); }
+
+/* ── FILTER BAR ── */
+.filterbar {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 8px 24px; display: flex; align-items: center; gap: 24px;
+}
+.filterbar-label { font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+.filter-group { display: flex; gap: 4px; }
+.fchip {
+  font-size: 11px; padding: 4px 14px; border-radius: 20px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--muted);
+  transition: all 0.15s; font-weight: 400;
+}
+.fchip:hover { border-color: var(--g3); color: var(--g2); }
+.fchip.active { background: var(--g2); color: #fff; border-color: var(--g2); font-weight: 500; }
+.filter-date { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-left: auto; }
+
+/* ── CANVAS ── */
+.canvas { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+
+/* ── KPI ROW ── */
+.kpi-row { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 12px; }
+.kpi {
+  background: var(--surface); border-radius: 10px; padding: 16px 18px;
+  border: 1px solid var(--border); position: relative; overflow: hidden;
+}
+.kpi::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: var(--g3);
+}
+.kpi.warn::before { background: var(--amber); }
+.kpi.danger::before { background: var(--red); }
+.kpi.teal::before { background: var(--teal); }
+.kpi.neutral::before { background: var(--faint); }
+.kpi-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 500; margin-bottom: 6px; }
+.kpi-value { font-size: 26px; font-weight: 600; line-height: 1; letter-spacing: -1px; color: var(--text); }
+.kpi-value.red { color: var(--red); }
+.kpi-value.amber { color: var(--amber); }
+.kpi-value.green { color: var(--g2); }
+.kpi-sub { font-size: 11px; color: var(--muted); margin-top: 5px; }
+.kpi-trend { font-size: 11px; font-weight: 500; margin-top: 4px; }
+.kpi-trend.up { color: var(--g3); }
+.kpi-trend.down { color: var(--red); }
+
+/* ── MAIN GRID ── */
+.main-grid { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1fr); gap: 16px; }
+.card {
+  background: var(--surface); border-radius: 10px; border: 1px solid var(--border); padding: 18px 20px;
+}
+.card-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); font-weight: 600; margin-bottom: 16px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-title span { font-size: 11px; color: var(--g3); text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* ── BARRAS ── */
+.bar-list { display: flex; flex-direction: column; gap: 10px; }
+.bar-item { display: grid; grid-template-columns: 130px 1fr 52px; align-items: center; gap: 10px; }
+.bar-name { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-track { background: var(--g-pale); border-radius: 4px; height: 12px; overflow: hidden; border: 1px solid var(--border); }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s cubic-bezier(.4,0,.2,1); }
+.fill-green { background: var(--g3); }
+.fill-amber { background: var(--amber); }
+.fill-red   { background: var(--red); }
+.bar-nums { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); text-align: right; }
+
+.bar-legend { display: flex; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.leg-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); }
+.leg-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+/* ── DONUT ── */
+.donut-section { display: flex; align-items: center; gap: 20px; }
+.donut-wrap { position: relative; flex-shrink: 0; }
+.donut-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; }
+.donut-center-val { font-size: 24px; font-weight: 600; color: var(--text); letter-spacing: -1px; line-height: 1; }
+.donut-center-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.donut-legend { display: flex; flex-direction: column; gap: 9px; flex: 1; }
+.dleg { display: flex; align-items: center; justify-content: space-between; font-size: 11px; }
+.dleg-left { display: flex; align-items: center; gap: 7px; color: var(--text); }
+.dleg-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.dleg-val { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); }
+
+/* ── BOTTOM GRID ── */
+.bottom-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+
+/* ── MINI TABLE ── */
+.mini-table { width: 100%; border-collapse: collapse; }
+.mini-table th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); font-weight: 500; padding: 6px 8px;
+  border-bottom: 1px solid var(--border); text-align: left;
+}
+.mini-table td { padding: 7px 8px; border-bottom: 1px solid var(--g-pale); font-size: 12px; }
+.mini-table tr:last-child td { border-bottom: none; }
+.mini-table td:last-child { text-align: right; }
+.pill {
+  display: inline-block; font-size: 10px; font-weight: 500;
+  padding: 2px 9px; border-radius: 20px;
+}
+.pill-ok   { background: var(--g-light); color: #27500a; }
+.pill-warn { background: var(--amber-light); color: #633806; }
+.pill-bad  { background: var(--red-light); color: #791f1f; }
+
+/* ── SPARKLINES ── */
+.spark-list { display: flex; flex-direction: column; gap: 11px; }
+.spark-item { display: grid; grid-template-columns: 100px 1fr 42px; align-items: center; gap: 10px; }
+.spark-name { font-size: 11px; color: var(--muted); }
+.spark-svg { width: 100%; height: 32px; }
+.spark-val { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text); text-align: right; }
+
+/* ── FOOTER ── */
+.footer { padding: 12px 24px; border-top: 1px solid var(--border); background: var(--surface); font-size: 10px; color: var(--faint); display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">
+      <div class="logo-badge">ST</div>
+      <span class="logo-text">Scheduling Tool</span>
+    </div>
+    <span class="report-title">Outbound — Visão Operacional</span>
+  </div>
+  <div class="topbar-right">
+    <span class="sync-badge" id="sync-time">Carregando...</span>
+    <button class="btn-export" onclick="window.print()">Exportar PDF</button>
+  </div>
+</div>
+
+<div class="filterbar">
+  <span class="filterbar-label">Turno</span>
+  <div class="filter-group">
+    <div class="fchip active" onclick="setFilter('turno','1T',this)">1º Turno</div>
+    <div class="fchip" onclick="setFilter('turno','2T',this)">2º Turno</div>
+    <div class="fchip" onclick="setFilter('turno','ALL',this)">Ambos</div>
+  </div>
+  <span class="filterbar-label">Equipe</span>
+  <div class="filter-group">
+    <div class="fchip active" onclick="setFilter('equipe','ALL',this)">Todas</div>
+    <div class="fchip" onclick="setFilter('equipe','PKG',this)">Picking</div>
+    <div class="fchip" onclick="setFilter('equipe','VOL',this)">Volumoso</div>
+    <div class="fchip" onclick="setFilter('equipe','HVP',this)">HVP</div>
+    <div class="fchip" onclick="setFilter('equipe','PCH',this)">Parachoque</div>
+    <div class="fchip" onclick="setFilter('equipe','EXP',this)">Exportação</div>
+  </div>
+  <span class="filter-date" id="filter-date"></span>
+</div>
+
+<div class="canvas">
+
+  <!-- KPIs -->
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">HC Disponível</div>
+      <div class="kpi-value" id="kHC">82</div>
+      <div class="kpi-sub" id="kHCsub">de 126 necessários</div>
+    </div>
+    <div class="kpi danger">
+      <div class="kpi-label">Delta HC</div>
+      <div class="kpi-value red" id="kDelta">−44</div>
+      <div class="kpi-sub">shortfall de mão de obra</div>
+      <div class="kpi-trend down" id="kDeltaTrend">▼ vs. semana anterior</div>
+    </div>
+    <div class="kpi warn">
+      <div class="kpi-label">Eficiência Média</div>
+      <div class="kpi-value amber" id="kEf">74%</div>
+      <div class="kpi-sub">meta: 90%</div>
+      <div class="kpi-trend up">▲ +3pp esta semana</div>
+    </div>
+    <div class="kpi teal">
+      <div class="kpi-label">Emp. Recebidos</div>
+      <div class="kpi-value" id="kEmp">45</div>
+      <div class="kpi-sub" id="kEmpSub">colaboradores emprestados</div>
+    </div>
+    <div class="kpi neutral">
+      <div class="kpi-label">Processos Ativos</div>
+      <div class="kpi-value" id="kProc">23</div>
+      <div class="kpi-sub">5 grupos operacionais</div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main-grid">
+    <div class="card">
+      <div class="card-title">Necessidade vs. alocado por equipe <span id="lbl-nec">— Ambos os turnos</span></div>
+      <div class="bar-list" id="barList"></div>
+      <div class="bar-legend">
+        <div class="leg-item"><div class="leg-dot" style="background:var(--g3)"></div>OK ≥ 85%</div>
+        <div class="leg-item"><div class="leg-dot" style="background:var(--amber)"></div>Atenção 70–84%</div>
+        <div class="leg-item"><div class="leg-dot" style="background:var(--red)"></div>Crítico &lt; 70%</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Composição do headcount</div>
+      <div class="donut-section">
+        <div class="donut-wrap">
+          <canvas id="donutChart" width="140" height="140"></canvas>
+          <div class="donut-center">
+            <div class="donut-center-val" id="donutVal">82</div>
+            <div class="donut-center-lbl">HC total</div>
+          </div>
+        </div>
+        <div class="donut-legend" id="donutLegend"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom -->
+  <div class="bottom-grid">
+    <div class="card">
+      <div class="card-title">Status operacional por equipe</div>
+      <table class="mini-table">
+        <thead><tr><th>Equipe</th><th>Ef. %</th><th>Status</th></tr></thead>
+        <tbody id="statusTable"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">Tendência de eficiência — 6 semanas</div>
+      <div class="spark-list" id="sparkList"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Ausências — composição</div>
+      <div style="position:relative;height:180px;"><canvas id="absChart"></canvas></div>
+      <div class="bar-legend" style="margin-top:10px;">
+        <div class="leg-item"><div class="leg-dot" style="background:var(--g3)"></div>Férias/MP</div>
+        <div class="leg-item"><div class="leg-dot" style="background:var(--amber)"></div>Absenteísmo</div>
+        <div class="leg-item"><div class="leg-dot" style="background:var(--teal)"></div>Banco Horas</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <span>Scheduling Tool — Outbound · Dashboard Operacional</span>
+  <span id="footer-date"></span>
+</div>
+
+<script>
+const EQUIPES = ['Picking Mecânico','Volumoso','HVP','Parachoque','Exportação'];
+const COLORS  = ['#2d5a3d','#3d7a52','#2e6b5e','#5c4a2a','#a0522d'];
+
+const DATA = {
+  'ALL':{ hc:82, nec:126, delta:-44, ef:74, emp:45,
+    aloc:[54,7,6,9,6], necs:[67,16,7,14,6],
+    ef_equipe:[78,44,93,68,100],
+    ausencias:{ ferias:[1,0,0,2,0], abs:[4,0,0,0,0], banco:[0,0,0,0,0] }
+  },
+  '1T':{ hc:50, nec:82, delta:-32, ef:71, emp:45,
+    aloc:[29,4,3,9,5], necs:[42,10,4,9,6],
+    ef_equipe:[75,41,90,64,100],
+    ausencias:{ ferias:[1,0,0,2,0], abs:[4,0,0,0,0], banco:[0,0,0,0,0] }
+  },
+  '2T':{ hc:32, nec:44, delta:-12, ef:77, emp:0,
+    aloc:[25,3,3,0,1], necs:[25,6,3,5,0],
+    ef_equipe:[82,46,96,0,100],
+    ausencias:{ ferias:[0,0,0,0,0], abs:[0,0,0,0,0], banco:[0,0,0,0,0] }
+  }
+};
+
+const SPARKS = {
+  'Picking Mecânico': [68,72,70,75,77,78],
+  'Volumoso':         [52,48,50,45,44,44],
+  'HVP':              [85,88,89,91,92,93],
+  'Parachoque':       [72,70,68,66,68,68],
+  'Exportação':       [90,92,94,96,98,100],
+};
+
+const EQUIPE_FILTER = {
+  ALL:[0,1,2,3,4], PKG:[0], VOL:[1], HVP:[2], PCH:[3], EXP:[4]
+};
+
+let turno = 'ALL';
+let equipeFilter = 'ALL';
+let donutChart, absChart;
+
+function pct(a,b){ return b===0 ? 0 : Math.round(a/b*100); }
+function colorFor(p){ return p>=85?'fill-green':p>=70?'fill-amber':'fill-red'; }
+function pillFor(p){
+  if(p>=85) return ['pill-ok','OK'];
+  if(p>=70) return ['pill-warn','Atenção'];
+  return ['pill-bad','Crítico'];
+}
+
+function render(){
+  const d = DATA[turno];
+  const idxs = EQUIPE_FILTER[equipeFilter];
+
+  // KPIs
+  const filtHC  = idxs.reduce((s,i)=>s+d.aloc[i],0);
+  const filtNec = idxs.reduce((s,i)=>s+d.necs[i],0);
+  const filtEf  = idxs.length===1 ? d.ef_equipe[idxs[0]] : Math.round(idxs.reduce((s,i)=>s+d.ef_equipe[i],0)/idxs.length);
+
+  document.getElementById('kHC').textContent = filtHC;
+  document.getElementById('kHCsub').textContent = 'de '+filtNec+' necessários';
+  const delta = filtHC - filtNec;
+  const kd = document.getElementById('kDelta');
+  kd.textContent = (delta>0?'+':'')+delta;
+  kd.className = 'kpi-value '+(delta<0?'red':'green');
+  document.getElementById('kEf').textContent = filtEf+'%';
+  document.getElementById('kEf').className = 'kpi-value '+(filtEf>=85?'green':filtEf>=70?'amber':'red');
+  document.getElementById('kEmp').textContent = d.emp;
+  document.getElementById('lbl-nec').textContent = '— '+(turno==='ALL'?'Ambos os turnos':turno);
+
+  // Bars
+  const barList = document.getElementById('barList');
+  barList.innerHTML = '';
+  idxs.forEach(i=>{
+    const a = d.aloc[i], n = d.necs[i], p = pct(a,n);
+    barList.innerHTML += `
+      <div class="bar-item">
+        <span class="bar-name">${EQUIPES[i]}</span>
+        <div class="bar-track"><div class="bar-fill ${colorFor(p)}" style="width:${p}%"></div></div>
+        <span class="bar-nums">${a}/${n}</span>
+      </div>`;
+  });
+
+  // Donut
+  const filtAloc = idxs.map(i=>d.aloc[i]);
+  const filtColors = idxs.map(i=>COLORS[i]);
+  const filtNames = idxs.map(i=>EQUIPES[i]);
+  donutChart.data.datasets[0].data = filtAloc;
+  donutChart.data.datasets[0].backgroundColor = filtColors;
+  donutChart.update();
+  document.getElementById('donutVal').textContent = filtHC;
+
+  const dl = document.getElementById('donutLegend');
+  dl.innerHTML = '';
+  idxs.forEach((gi,li)=>{
+    dl.innerHTML += `<div class="dleg">
+      <div class="dleg-left"><div class="dleg-dot" style="background:${COLORS[gi]}"></div>${EQUIPES[gi]}</div>
+      <span class="dleg-val">${d.aloc[gi]}</span>
+    </div>`;
+  });
+
+  // Status table
+  const tbody = document.getElementById('statusTable');
+  tbody.innerHTML = '';
+  idxs.forEach(i=>{
+    const ef = d.ef_equipe[i];
+    const [cls,lbl] = pillFor(ef);
+    tbody.innerHTML += `<tr><td>${EQUIPES[i]}</td><td>${ef}%</td><td><span class="pill ${cls}">${lbl}</span></td></tr>`;
+  });
+
+  // Sparks
+  const sl = document.getElementById('sparkList');
+  sl.innerHTML = '';
+  idxs.forEach(i=>{
+    const vals = SPARKS[EQUIPES[i]];
+    const last = vals[vals.length-1];
+    const trend = last > vals[0];
+    const c = colorFor(last).replace('fill-','var(--').replace('green','g3').replace('amber','amber').replace('red','red')+')';
+    const minV = Math.min(...vals), maxV = Math.max(...vals);
+    const range = maxV-minV || 1;
+    const pts = vals.map((v,xi)=>`${xi*(120/5)},${28-((v-minV)/range)*22}`).join(' ');
+    sl.innerHTML += `<div class="spark-item">
+      <span class="spark-name">${EQUIPES[i]}</span>
+      <svg class="spark-svg" viewBox="0 0 120 28" preserveAspectRatio="none">
+        <polyline points="${pts}" fill="none" stroke="${c.replace('var(--','').replace(')','')=='g3'?'#3d7a52':c.replace('var(--','').replace(')','')=='amber'?'#c07a1a':'#8b2e2e'}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${120}" cy="${28-((last-minV)/range)*22}" r="3" fill="${last>=85?'#3d7a52':last>=70?'#c07a1a':'#8b2e2e'}"/>
+      </svg>
+      <span class="spark-val">${last}%</span>
+    </div>`;
+  });
+
+  // Abs chart
+  const absData = {
+    labels: idxs.map(i=>EQUIPES[i].split(' ')[0]),
+    datasets: [
+      { label:'Férias/MP', data:idxs.map(i=>d.ausencias.ferias[i]), backgroundColor:'#3d7a52', borderWidth:0 },
+      { label:'Absenteísmo', data:idxs.map(i=>d.ausencias.abs[i]), backgroundColor:'#c07a1a', borderWidth:0 },
+      { label:'Banco Horas', data:idxs.map(i=>d.ausencias.banco[i]), backgroundColor:'#2e6b5e', borderWidth:0 },
+    ]
+  };
+  absChart.data = absData;
+  absChart.update();
+}
+
+function setFilter(type, val, el){
+  el.closest('.filter-group').querySelectorAll('.fchip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  if(type==='turno') turno=val;
+  else equipeFilter=val;
+  render();
+}
+
+// Init charts
+donutChart = new Chart(document.getElementById('donutChart'),{
+  type:'doughnut',
+  data:{ datasets:[{ data:[54,7,6,9,6], backgroundColor:COLORS, borderWidth:0 }] },
+  options:{
+    responsive:false, cutout:'65%',
+    plugins:{ legend:{display:false}, tooltip:{enabled:false} },
+    animation:{duration:400}
+  }
+});
+
+absChart = new Chart(document.getElementById('absChart'),{
+  type:'bar',
+  data:{ labels:[], datasets:[] },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    scales:{
+      x:{ stacked:true, ticks:{font:{size:10},color:'#6b7c6b'}, grid:{display:false} },
+      y:{ stacked:true, ticks:{font:{size:10},color:'#6b7c6b'}, grid:{color:'#f0f5f0'}, beginAtZero:true }
+    },
+    plugins:{ legend:{display:false} },
+    animation:{duration:400}
+  }
+});
+
+// Date
+const now = new Date();
+const fmt = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+document.getElementById('sync-time').textContent = 'Atualizado '+fmt;
+document.getElementById('filter-date').textContent = now.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+document.getElementById('footer-date').textContent = 'Gerado em '+fmt;
+
+render();
+</script>
+</body>
+</html>
