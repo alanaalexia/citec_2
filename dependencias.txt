@@ -1,1 +1,1 @@
-pandas, ipykernel
+pandas statsmodels scikit-learn matplotlib seaborn
