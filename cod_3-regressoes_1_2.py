@@ -4,76 +4,134 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
-import statsmodels.formula.api as smf
 
 # ── Carregamento ──────────────────────────────────────────────────────────────
 df = pd.read_csv("picking_tratado.csv")
 df["DATE_FINISHED"] = pd.to_datetime(df["DATE_FINISHED"])
-df["date_ordinal"]  = df["DATE_FINISHED"].map(pd.Timestamp.toordinal)
 
+# ── Filtro: apenas blocos com 1 item único ────────────────────────────────────
+df_single = df[~df["itens"].str.contains(",")].copy()
+df_single["ITEM"] = df_single["itens"].str.strip()
+
+print(f"Blocos totais      : {len(df)}")
+print(f"Blocos item único  : {len(df_single)} ({len(df_single)/len(df)*100:.1f}%)\n")
+
+# ── Filtro: apenas itens com observações suficientes para regressão ───────────
+MIN_OBS = 10
+contagem = df_single["ITEM"].value_counts()
+itens_validos = contagem[contagem >= MIN_OBS].index
+df_single = df_single[df_single["ITEM"].isin(itens_validos)].copy()
+
+print(f"Itens com >= {MIN_OBS} obs : {len(itens_validos)}")
+print(f"Obs restantes      : {len(df_single)}\n")
+
+# ── Regressão por item: delta_tempo ~ total_done ──────────────────────────────
+resultados = []
+
+for item, grupo in df_single.groupby("ITEM"):
+    X = grupo["total_done"].values.reshape(-1, 1)
+    y = grupo["delta_tempo"].values
+
+    if X.std() == 0:          # sem variação em total_done → skip
+        continue
+
+    modelo = LinearRegression().fit(X, y)
+    r2     = r2_score(y, modelo.predict(X))
+
+    resultados.append({
+        "ITEM"        : item,
+        "n_obs"       : len(grupo),
+        "intercepto"  : modelo.intercept_,
+        "coef"        : modelo.coef_[0],   # s por peça adicional
+        "r2"          : r2,
+        "total_done_mean": grupo["total_done"].mean(),
+        "delta_tempo_mean": grupo["delta_tempo"].mean(),
+    })
+
+res = pd.DataFrame(resultados).sort_values("coef", ascending=False).reset_index(drop=True)
+
+print("── Resultados por item (ordenado por coeficiente) ───────────────────────")
+print(res.to_string(index=False))
+res.to_csv("reg_itens_resultado.csv", index=False)
+print("\nSalvo: reg_itens_resultado.csv\n")
+
+# ════════════════════════════════════════════════════════════════════════════
+# GRÁFICO 1 — Coeficiente (s/peça) por item, com tamanho = n_obs
+# ════════════════════════════════════════════════════════════════════════════
 sns.set_theme(style="whitegrid")
 
-# ════════════════════════════════════════════════════════════════════════════
-# REGRESSÃO 1 — delta_tempo ~ total_done  (operação individual)
-# Pergunta: operações com mais peças demoram proporcionalmente mais?
-# ════════════════════════════════════════════════════════════════════════════
-X1 = df["total_done"].values.reshape(-1, 1)
-y1 = df["delta_tempo"].values
-modelo1 = LinearRegression().fit(X1, y1)
-r2_1    = r2_score(y1, modelo1.predict(X1))
+fig, ax = plt.subplots(figsize=(10, max(5, len(res) * 0.45)))
 
-x_line1 = np.linspace(X1.min(), X1.max(), 200).reshape(-1, 1)
+cores = ["crimson" if c > 0 else "steelblue" for c in res["coef"]]
+bars  = ax.barh(res["ITEM"].astype(str), res["coef"], color=cores, alpha=0.8)
 
-fig, ax = plt.subplots(figsize=(9, 5))
-ax.scatter(df["total_done"], df["delta_tempo"], alpha=0.1, s=5, color="steelblue", label="Observações")
-ax.plot(x_line1, modelo1.predict(x_line1), color="crimson", linewidth=2,
-        label=f"Regressão linear (R²={r2_1:.3f})")
-ax.set_xlabel("Peças movidas (total_done)")
-ax.set_ylabel("Delta tempo (s)")
-ax.set_title("Regressão 1 — Tempo por operação vs. Peças movidas")
-ax.legend()
+# Anotação: n_obs em cada barra
+for bar, n in zip(bars, res["n_obs"]):
+    ax.text(
+        bar.get_width() + res["coef"].abs().max() * 0.01,
+        bar.get_y() + bar.get_height() / 2,
+        f"n={n}", va="center", ha="left", fontsize=8, color="gray"
+    )
+
+ax.axvline(0, color="black", linewidth=0.8, linestyle="--")
+ax.set_xlabel("Coeficiente (segundos por peça adicional)")
+ax.set_title("Efeito do volume de peças no delta_tempo — por item\n"
+             "(vermelho = mais peças → mais tempo | azul = mais peças → menos tempo)")
 plt.tight_layout()
-plt.savefig("reg1_tempo_vs_pecas.png", dpi=150)
+plt.savefig("reg_itens_coeficientes.png", dpi=150)
 plt.show()
 
-print("── Regressão 1 ──────────────────────────────────────")
-print(f"  Intercepto  : {modelo1.intercept_:.2f} s")
-print(f"  Coeficiente : {modelo1.coef_[0]:.4f} s / peça")
-print(f"  R²          : {r2_1:.4f}\n")
-
 # ════════════════════════════════════════════════════════════════════════════
-# REGRESSÃO 2 — produtividade ao longo do tempo  (agregado por funcionário×dia)
-# Pergunta: os funcionários estão ficando mais rápidos com o tempo?
-# Métrica: peças por segundo = total_done / delta_tempo
+# GRÁFICO 2 — Scatter por item com linha de regressão individual
+# Mostra os top 12 itens com maior |coef| para não poluir
 # ════════════════════════════════════════════════════════════════════════════
-diario = (
-    df.groupby(["USER_FINISHED", "DATE_FINISHED", "date_ordinal"])
-      .agg(total_done=("total_done", "sum"), delta_tempo=("delta_tempo", "sum"))
-      .reset_index()
-)
-diario["produtividade"] = diario["total_done"] / diario["delta_tempo"]
+top_itens = res.reindex(res["coef"].abs().sort_values(ascending=False).index).head(12)["ITEM"].tolist()
+df_top    = df_single[df_single["ITEM"].isin(top_itens)].copy()
 
-X2     = diario["date_ordinal"].values.reshape(-1, 1)
-y2     = diario["produtividade"].values
-modelo2 = LinearRegression().fit(X2, y2)
-r2_2    = r2_score(y2, modelo2.predict(X2))
+n_cols = 3
+n_rows = int(np.ceil(len(top_itens) / n_cols))
+fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, n_rows * 3.5))
+axes = axes.flatten()
 
-x_line2  = np.linspace(X2.min(), X2.max(), 200).reshape(-1, 1)
-datas_line = [pd.Timestamp.fromordinal(int(x)) for x in x_line2.flatten()]
+for ax, item in zip(axes, top_itens):
+    grupo = df_top[df_top["ITEM"] == item]
+    X = grupo["total_done"].values.reshape(-1, 1)
+    y = grupo["delta_tempo"].values
 
-fig, ax = plt.subplots(figsize=(11, 5))
-ax.scatter(diario["DATE_FINISHED"], diario["produtividade"],
-           alpha=0.3, s=10, color="steelblue", label="Funcionário×dia")
-ax.plot(datas_line, modelo2.predict(x_line2), color="crimson", linewidth=2,
-        label=f"Tendência (R²={r2_2:.3f})")
-ax.set_xlabel("Data")
-ax.set_ylabel("Produtividade (peças / s)")
-ax.set_title("Regressão 2 — Produtividade agregada ao longo do tempo")
-ax.legend()
+    modelo = LinearRegression().fit(X, y)
+    r2     = r2_score(y, modelo.predict(X))
+    x_line = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+
+    cor = "crimson" if modelo.coef_[0] > 0 else "steelblue"
+    ax.scatter(grupo["total_done"], grupo["delta_tempo"],
+               alpha=0.4, s=15, color=cor)
+    ax.plot(x_line, modelo.predict(x_line), color=cor, linewidth=2)
+    ax.set_title(f"Item {item}\ncoef={modelo.coef_[0]:.2f} s/peça  R²={r2:.3f}  n={len(grupo)}",
+                 fontsize=9)
+    ax.set_xlabel("total_done", fontsize=8)
+    ax.set_ylabel("delta_tempo (s)", fontsize=8)
+
+# Oculta eixos extras
+for ax in axes[len(top_itens):]:
+    ax.set_visible(False)
+
+plt.suptitle("Top 12 itens — Regressão delta_tempo ~ total_done", fontsize=12, y=1.01)
 plt.tight_layout()
-plt.savefig("reg2_produtividade_tempo.png", dpi=150)
+plt.savefig("reg_itens_scatter_top12.png", dpi=150, bbox_inches="tight")
 plt.show()
 
-print("── Regressão 2 ──────────────────────────────────────")
-print(f"  Tendência diária : {modelo2.coef_[0] * 86400:+.6f} peças/s por dia")
-print(f"  R²               : {r2_2:.4f}\n")
+# ════════════════════════════════════════════════════════════════════════════
+# GRÁFICO 3 — R² por item (qualidade do ajuste)
+# ════════════════════════════════════════════════════════════════════════════
+res_sorted_r2 = res.sort_values("r2", ascending=True)
+
+fig, ax = plt.subplots(figsize=(8, max(4, len(res) * 0.4)))
+ax.barh(res_sorted_r2["ITEM"].astype(str), res_sorted_r2["r2"],
+        color="mediumpurple", alpha=0.8)
+ax.axvline(0.3, color="orange", linestyle="--", linewidth=1, label="R²=0.30")
+ax.set_xlabel("R²")
+ax.set_title("Qualidade da regressão por item\n(quanto total_done explica delta_tempo)")
+ax.legend()
+plt.tight_layout()
+plt.savefig("reg_itens_r2.png", dpi=150)
+plt.show()

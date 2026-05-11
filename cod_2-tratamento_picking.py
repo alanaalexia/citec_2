@@ -21,7 +21,6 @@ df = df.sort_values(["USER_FINISHED", "DATE_FINISHED", "time_seconds"]).reset_in
 THRESHOLD = 30
 
 def assign_group(subdf):
-    """Atribui um group_id sequencial: novo grupo sempre que gap > THRESHOLD."""
     group_ids, gid, prev_t = [], 0, None
     for t in subdf["time_seconds"]:
         if prev_t is None or (t - prev_t) > THRESHOLD:
@@ -56,6 +55,7 @@ result = (
           t_start    = ("time_seconds", "min"),
           t_end      = ("time_seconds", "max"),
           total_done = ("_DONE",        "sum"),
+          itens      = ("ITEM",         lambda x: ", ".join(x.astype(str).unique())),
           n_items    = ("ITEM",         "count"),
       )
       .reset_index()
@@ -68,32 +68,37 @@ result["prev_t_end"]    = result.groupby(["USER_FINISHED", "DATE_FINISHED"])["t_
 result["delta_tempo"]   = result["t_start"] - result["prev_t_end"]
 result["duracao_bloco"] = result["t_end"]   - result["t_start"]
 
-# Descarta o primeiro registro de cada funcionário×dia (sem predecessor)
 result = result.dropna(subset=["delta_tempo"]).reset_index(drop=True)
 
 # ── 7. Remoção de outliers ────────────────────────────────────────────────────
-# Deltas > 1h indicam pausas/almoço/troca de turno, não picking real
-LIMITE_OUTLIER = 3600  # segundos
+LIMITE_OUTLIER = 3600
 result = result[result["delta_tempo"] <= LIMITE_OUTLIER].reset_index(drop=True)
 
-# ── 8. Chave legível e seleção final de colunas ───────────────────────────────
+# ── 8. Chave legível ──────────────────────────────────────────────────────────
 result["bloco_id"] = (
     result["USER_FINISHED"].astype(str)
     + "_" + result["DATE_FINISHED"].astype(str)
     + "_G" + result["group_id"].astype(str).str.zfill(2)
 )
 
+# ── 9. Seleção final de colunas ───────────────────────────────────────────────
 result = result[[
-    "bloco_id", "USER_FINISHED", "DATE_FINISHED",
-    "n_items", "total_done", "duracao_bloco", "delta_tempo",
+    "bloco_id",
+    "USER_FINISHED",
+    "DATE_FINISHED",
+    "itens",
+    "n_items",
+    "total_done",
+    "duracao_bloco",
+    "delta_tempo",
 ]]
 
-# ── 9. Resumo ─────────────────────────────────────────────────────────────────
+# ── 10. Resumo ────────────────────────────────────────────────────────────────
 print(result.head(20).to_string())
 print(f"\nTotal de observações: {len(result)}")
 print(f"\nEstatísticas de delta_tempo (segundos):")
 print(result["delta_tempo"].describe())
 
-# ── 10. Exportação ────────────────────────────────────────────────────────────
+# ── 11. Exportação ────────────────────────────────────────────────────────────
 result.to_csv("picking_tratado.csv", index=False)
 print("Arquivo salvo: picking_tratado.csv")
